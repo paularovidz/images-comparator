@@ -4,6 +4,7 @@ const loadBtn = document.getElementById("loadBtn");
 const shareBtn = document.getElementById("shareBtn");
 const historyList = document.getElementById("historyList");
 const currentLabel = document.getElementById("currentLabel");
+const imageInfo = document.getElementById("imageInfo");
 
 let scale = 1;
 let offsetX = 0;
@@ -13,14 +14,16 @@ let startX, startY;
 
 let images = [];
 let currentIndex = 0;
+let currentMeta = []; // store size/dimensions/blobUrl for loaded images
 
 // Load images from inputs
-loadBtn.addEventListener("click", () => {
+loadBtn.addEventListener("click", async () => {
   const urls = getUrls();
   if (urls.length === 0) return;
 
-  loadImages(urls);
-  saveHistory(urls);
+  const meta = await fetchMetaForImages(urls);
+  loadImages(urls, meta);
+  saveHistory(urls); // we only store URLs, not blobUrls
 });
 
 // Share button: copy link with params
@@ -54,15 +57,45 @@ function getUrls() {
   ].filter(u => u.trim() !== "");
 }
 
-function loadImages(urls) {
+// Fetch metadata by downloading the image once
+async function fetchMetaForImages(urls) {
+  const results = [];
+  for (let url of urls) {
+    try {
+      const resp = await fetch(url);
+      const buffer = await resp.arrayBuffer();
+      const sizeKb = (buffer.byteLength / 1024).toFixed(1);
+      const blob = new Blob([buffer]);
+      const blobUrl = URL.createObjectURL(blob);
+
+      // Load the blob as image to get dimensions
+      const img = new Image();
+      img.src = blobUrl;
+      await img.decode();
+
+      results.push({
+        size: `${sizeKb} KB`,
+        dimensions: `${img.naturalWidth}×${img.naturalHeight}`,
+        blobUrl
+      });
+    } catch (e) {
+      console.warn("Error fetching", url, e);
+      results.push({ size: "Unknown", dimensions: "", blobUrl: url });
+    }
+  }
+  return results;
+}
+
+function loadImages(urls, meta) {
   viewer.querySelectorAll(".image-layer").forEach(el => el.remove());
   controls.innerHTML = "";
   images = [];
   currentIndex = 0;
+  currentMeta = meta;
 
-  urls.forEach((url, i) => {
+  meta.forEach((m, i) => {
     const img = document.createElement("img");
-    img.src = url;
+    img.src = m.blobUrl || urls[i];
     img.className = "image-layer";
     img.draggable = false;
     if (i === 0) img.classList.add("active");
@@ -94,8 +127,13 @@ function switchImage(i) {
 function updateLabel() {
   if (images.length === 0) {
     currentLabel.textContent = "No image loaded";
+    imageInfo.textContent = "Size: --";
   } else {
     currentLabel.textContent = `Showing image: ${currentIndex + 1}`;
+    const meta = currentMeta[currentIndex];
+    if (meta) {
+      imageInfo.textContent = `Size: ${meta.size} (${meta.dimensions})`;
+    }
   }
 }
 
@@ -105,16 +143,15 @@ function applyTransform() {
   });
 }
 
-// Save history
+// Save history (only URLs, not blobUrls)
 function saveHistory(urls) {
   let history = JSON.parse(localStorage.getItem("comparisons") || "[]");
-  history.unshift(urls);
+  history.unshift({ urls });
   history = history.slice(0, 20);
   localStorage.setItem("comparisons", JSON.stringify(history));
   renderHistory();
 }
 
-// Delete history item
 function deleteHistory(index) {
   let history = JSON.parse(localStorage.getItem("comparisons") || "[]");
   history.splice(index, 1);
@@ -122,25 +159,30 @@ function deleteHistory(index) {
   renderHistory();
 }
 
-// Render history list
 function renderHistory() {
   historyList.innerHTML = "";
   const history = JSON.parse(localStorage.getItem("comparisons") || "[]");
-  history.forEach((urls, index) => {
+  history.forEach(async (entry, index) => {
+    const { urls } = entry;
+
     const wrapper = document.createElement("div");
     wrapper.className = "history-btn";
+
+    // regenerate meta (to display size info in history)
+    const meta = await fetchMetaForImages(urls);
 
     const preview = document.createElement("img");
     preview.src = urls[0] || "";
     wrapper.appendChild(preview);
 
     const label = document.createElement("span");
-    label.textContent = `Comparison ${index+1}`;
+    let sizeText = meta && meta[0] ? meta[0].size : "Unknown";
+    label.textContent = `Comp. ${index+1} (${sizeText})`;
     wrapper.appendChild(label);
 
     wrapper.onclick = () => {
       setInputs(urls);
-      loadImages(urls);
+      loadImages(urls, meta);
     };
 
     const delBtn = document.createElement("button");
@@ -202,15 +244,16 @@ window.addEventListener("mousemove", (e) => {
   applyTransform();
 });
 
-// On page load: check if shared URL has images
-window.onload = () => {
+// On page load
+window.onload = async () => {
   const params = new URLSearchParams(window.location.search);
   const imgsParam = params.get("imgs");
   if (imgsParam) {
     try {
       const urls = JSON.parse(decodeURIComponent(imgsParam));
+      const meta = await fetchMetaForImages(urls);
       setInputs(urls);
-      loadImages(urls);
+      loadImages(urls, meta);
       saveHistory(urls);
     } catch(e) {
       console.error("Error parsing imgs param", e);
