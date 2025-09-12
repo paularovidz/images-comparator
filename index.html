@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Image Quality Comparator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <input type="text" id="url1" placeholder="Image 1 (JPG)">
+    <input type="text" id="url2" placeholder="Image 2 (WEBP)">
+    <input type="text" id="url3" placeholder="Image 3 (AVIF)">
+    <input type="text" id="url4" placeholder="Image 4 (Other)">
+    <button id="loadBtn">Load</button>
+    <button id="shareBtn">Share</button>
+  </header>
+
+  <div id="viewer">
+    <h2 id="currentLabel">No image loaded</h2>
+    <div id="controls"></div>
+  </div>
+
+  <div id="history">
+    <h3>History</h3>
+    <div id="historyList"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
