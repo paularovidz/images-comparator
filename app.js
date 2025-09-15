@@ -14,7 +14,7 @@ let startX, startY;
 
 let images = [];
 let currentIndex = 0;
-let currentMeta = []; // store size/dimensions/blobUrl for loaded images
+let currentMeta = []; // size/dimensions/blobUrl for loaded images
 
 // Load images from inputs
 loadBtn.addEventListener("click", async () => {
@@ -22,8 +22,8 @@ loadBtn.addEventListener("click", async () => {
   if (urls.length === 0) return;
 
   const meta = await fetchMetaForImages(urls);
-  loadImages(urls, meta);
-  saveHistory(urls); // we only store URLs, not blobUrls
+  loadImages(meta);
+  saveHistory(urls); // only store original URLs
 });
 
 // Share button: copy link with params
@@ -57,53 +57,171 @@ function getUrls() {
   ].filter(u => u.trim() !== "");
 }
 
-// Fetch metadata by downloading the image once
+// Download each image once and extract size + dimensions
 async function fetchMetaForImages(urls) {
   const results = [];
-  for (let url of urls) {
-    try {
-      const resp = await fetch(url);
-      const buffer = await resp.arrayBuffer();
-      const sizeKb = (buffer.byteLength / 1024).toFixed(1);
-      const blob = new Blob([buffer]);
-      const blobUrl = URL.createObjectURL(blob);
-
-      // Load the blob as image to get dimensions
-      const img = new Image();
-      img.src = blobUrl;
-      await img.decode();
-
-      results.push({
-        size: `${sizeKb} KB`,
-        dimensions: `${img.naturalWidth}×${img.naturalHeight}`,
-        blobUrl
-      });
-    } catch (e) {
-      console.warn("Error fetching", url, e);
-      results.push({ size: "Unknown", dimensions: "", blobUrl: url });
-    }
+  
+  // Traiter chaque URL avec une fonction complètement séparée
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    const result = await processImageCompletely(url, i + 1);
+    results.push(result);
+    
+    // Log simple: URL <> poids
+    console.log(`${url} <> ${result.size}`);
   }
+  
   return results;
 }
 
-function loadImages(urls, meta) {
+// Fonction complètement séparée pour traiter une image
+async function processImageCompletely(url, index) {
+  let finalSize = "Unknown";
+  let finalDimensions = "Unknown";
+  
+  try {
+    // Méthode 1: Essayer fetch avec CORS et headers appropriés
+    try {
+      const response = await fetch(url, { 
+        mode: 'cors',
+        cache: 'no-cache',
+        headers: {
+          'Accept': 'image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+          'User-Agent': navigator.userAgent
+        }
+      });
+      
+      if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer();
+        finalSize = (arrayBuffer.byteLength / 1024).toFixed(1);
+      } else {
+        throw new Error(`CORS failed: ${response.status}`);
+      }
+    } catch (corsError) {
+      // Méthode 2: Essayer fetch sans CORS mais avec headers
+      try {
+        const response = await fetch(url, { 
+          cache: 'no-cache',
+          headers: {
+            'Accept': 'image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+            'User-Agent': navigator.userAgent
+          }
+        });
+        
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          finalSize = (arrayBuffer.byteLength / 1024).toFixed(1);
+        } else {
+          throw new Error(`No-CORS failed: ${response.status}`);
+        }
+      } catch (noCorsError) {
+        // Méthode 3: Essayer avec XMLHttpRequest et headers
+        try {
+          finalSize = await getSizeWithXHR(url, index);
+        } catch (xhrError) {
+          finalSize = "Unknown";
+        }
+      }
+    }
+    
+    // Obtenir les dimensions
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    
+    await new Promise((resolve) => {
+      img.onload = () => {
+        finalDimensions = `${img.naturalWidth}×${img.naturalHeight}`;
+        resolve();
+      };
+      img.onerror = () => {
+        resolve();
+      };
+      img.src = url;
+    });
+    
+  } catch (error) {
+    // Erreur silencieuse
+  }
+  
+  return {
+    originalUrl: url,
+    size: finalSize,
+    dimensions: finalDimensions
+  };
+}
+
+// Fonction pour obtenir la taille avec XMLHttpRequest
+function getSizeWithXHR(url, index) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('HEAD', url, true);
+    
+    // Ajouter les mêmes headers que pour fetch
+    xhr.setRequestHeader('Accept', 'image/webp,image/avif,image/apng,image/svg+xml,image/*,*/*;q=0.8');
+    xhr.setRequestHeader('Accept-Encoding', 'gzip, deflate, br');
+    xhr.setRequestHeader('Accept-Language', 'fr-FR,fr;q=0.9,en;q=0.8');
+    xhr.setRequestHeader('User-Agent', navigator.userAgent);
+    
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4) {
+        if (xhr.status === 200) {
+          const contentLength = xhr.getResponseHeader('Content-Length');
+          if (contentLength) {
+            const size = (parseInt(contentLength) / 1024).toFixed(1);
+            resolve(size);
+          } else {
+            reject(new Error('No Content-Length header'));
+          }
+        } else {
+          reject(new Error(`XHR failed: ${xhr.status}`));
+        }
+      }
+    };
+    xhr.onerror = () => reject(new Error('XHR network error'));
+    xhr.send();
+  });
+}
+
+function loadImages(meta) {
   viewer.querySelectorAll(".image-layer").forEach(el => el.remove());
   controls.innerHTML = "";
   images = [];
   currentIndex = 0;
   currentMeta = meta;
 
+  // Calculer les différences de poids pour les marqueurs max/min
+  const sizes = meta.map(m => {
+    const sizeStr = m.size.replace(" KB", "").replace("Unknown", "0").replace("Error", "0");
+    return parseFloat(sizeStr) || 0;
+  });
+  
+  const maxSize = Math.max(...sizes);
+  const minSize = Math.min(...sizes.filter(s => s > 0)); // Ignorer les 0 (Unknown/Error)
+
   meta.forEach((m, i) => {
     const img = document.createElement("img");
-    img.src = m.blobUrl || urls[i];
+    img.src = m.originalUrl; // Utiliser directement l'URL originale
     img.className = "image-layer";
     img.draggable = false;
+    img.style.display = i === 0 ? "block" : "none";
     if (i === 0) img.classList.add("active");
     viewer.appendChild(img);
     images.push(img);
 
     const btn = document.createElement("button");
-    btn.textContent = `Image ${i+1}`;
+    const sizeKB = sizes[i];
+    const isLargest = sizeKB === maxSize && sizeKB > 0;
+    const isSmallest = sizeKB === minSize && sizeKB > 0;
+    
+    let btnText = `Image ${i+1}`;
+    if (isLargest) btnText += " (max)";
+    if (isSmallest) btnText += " (min)";
+    
+    btn.textContent = btnText;
     btn.addEventListener("click", () => switchImage(i));
     if (i === 0) btn.classList.add("active");
     controls.appendChild(btn);
@@ -115,11 +233,18 @@ function loadImages(urls, meta) {
 
 function switchImage(i) {
   if (images.length === 0) return;
+  
+  // Masquer l'image actuelle
   images[currentIndex].classList.remove("active");
+  images[currentIndex].style.display = "none";
   controls.children[currentIndex].classList.remove("active");
+  
+  // Afficher la nouvelle image
   currentIndex = i;
   images[currentIndex].classList.add("active");
+  images[currentIndex].style.display = "block";
   controls.children[currentIndex].classList.add("active");
+  
   updateLabel();
   applyTransform();
 }
@@ -132,7 +257,7 @@ function updateLabel() {
     currentLabel.textContent = `Showing image: ${currentIndex + 1}`;
     const meta = currentMeta[currentIndex];
     if (meta) {
-      imageInfo.textContent = `Size: ${meta.size} (${meta.dimensions})`;
+      imageInfo.textContent = `Size: ${meta.size} KB`;
     }
   }
 }
@@ -143,7 +268,7 @@ function applyTransform() {
   });
 }
 
-// Save history (only URLs, not blobUrls)
+// Save history (only original URLs, not blobUrls)
 function saveHistory(urls) {
   let history = JSON.parse(localStorage.getItem("comparisons") || "[]");
   history.unshift({ urls });
@@ -162,27 +287,42 @@ function deleteHistory(index) {
 function renderHistory() {
   historyList.innerHTML = "";
   const history = JSON.parse(localStorage.getItem("comparisons") || "[]");
+
   history.forEach(async (entry, index) => {
     const { urls } = entry;
 
     const wrapper = document.createElement("div");
     wrapper.className = "history-btn";
 
-    // regenerate meta (to display size info in history)
+    // regenerate meta (fresh each time for accuracy)
     const meta = await fetchMetaForImages(urls);
 
     const preview = document.createElement("img");
-    preview.src = urls[0] || "";
+    preview.src = meta[0]?.originalUrl || urls[0] || "";
     wrapper.appendChild(preview);
 
     const label = document.createElement("span");
-    let sizeText = meta && meta[0] ? meta[0].size : "Unknown";
-    label.textContent = `Comp. ${index+1} (${sizeText})`;
+    
+    // Calculer le gain en % par rapport à l'image la plus lourde
+    const sizes = meta.map(m => {
+      const sizeStr = m.size.replace(" KB", "").replace("Unknown", "0").replace("Error", "0");
+      return parseFloat(sizeStr) || 0;
+    });
+    const maxSize = Math.max(...sizes);
+    const minSize = Math.min(...sizes.filter(s => s > 0));
+    const gain = maxSize > 0 && minSize > 0 ? ((maxSize - minSize) / maxSize * 100).toFixed(0) : 0;
+    
+    let labelText = `Comp. ${index+1}`;
+    if (gain > 0) {
+      labelText += ` (-${gain}%)`;
+    }
+    
+    label.textContent = labelText;
     wrapper.appendChild(label);
 
     wrapper.onclick = () => {
       setInputs(urls);
-      loadImages(urls, meta);
+      loadImages(meta);
     };
 
     const delBtn = document.createElement("button");
@@ -253,7 +393,7 @@ window.onload = async () => {
       const urls = JSON.parse(decodeURIComponent(imgsParam));
       const meta = await fetchMetaForImages(urls);
       setInputs(urls);
-      loadImages(urls, meta);
+      loadImages(meta);
       saveHistory(urls);
     } catch(e) {
       console.error("Error parsing imgs param", e);
