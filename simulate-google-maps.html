@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>PoC Store Locator Loader + LCP</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+    }
+
+    header {
+      padding: 1rem;
+      background: #f5f5f5;
+      text-align: center;
+    }
+
+    .map-container {
+      position: relative;
+      width: 100%;
+      height: 500px;
+      background: #eaeaea;
+      overflow: hidden;
+    }
+
+    /* Overlay blanc couvrant la map */
+    .map-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+
+    /* Loader centré */
+    .loader {
+      width: 20px;
+      height: 20px;
+      border: 3px solid #1D1D1D;
+      border-top: 3px solid transparent;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #map {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Bulle LCP */
+    .lcp-bubble {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(29,29,29,0.85);
+      color: white;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: monospace;
+      z-index: 9999;
+    }
+
+    /* Bouton toggle */
+    .toggle-btn {
+      margin-top: 10px;
+      padding: 6px 12px;
+      background: #1D1D1D;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .toggle-btn:hover {
+      background: #333;
+    }
+/* Image invisible pour LCP */
+    .lcp-img {
+      width: 300px;
+      height: 300px;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>PoC Store Locator Loader</h1>
+  <button class="toggle-btn" id="toggleLoaderBtn">Basculer Loader</button>
+</header>
+
+<main>
+  <div class="map-container">
+    <!-- SVG invisible pour LCP -->
+    <img class="lcp-img" src="loader.svg" alt="">
+
+    <!-- Overlay blanc + loader -->
+    <div class="map-overlay" id="mapOverlay">
+      <div class="loader"></div>
+    </div>
+
+    <!-- Google Map -->
+    <div id="map"></div>
+  </div>
+</main>
+
+<!-- Bulle affichant le LCP -->
+<div class="lcp-bubble" id="lcpBubble">LCP: …</div>
+
+<script>
+  // ----- Gestion du sessionStorage -----
+  const overlay = document.getElementById("mapOverlay");
+  const loaderEnabled = sessionStorage.getItem("loaderEnabled") !== "false"; 
+
+  if (!loaderEnabled) {
+    overlay.style.display = "none"; // map affichée directement
+  }
+
+  document.getElementById("toggleLoaderBtn").addEventListener("click", () => {
+    const current = sessionStorage.getItem("loaderEnabled") !== "false";
+    sessionStorage.setItem("loaderEnabled", !current);
+    location.reload();
+  });
+
+  // ----- Initialisation de Google Map -----
+  function initMap() {
+    const map = new google.maps.Map(document.getElementById("map"), {
+      center: { lat: 48.8566, lng: 2.3522 }, // Paris
+      zoom: 12,
+    });
+
+    if (loaderEnabled) {
+      google.maps.event.addListenerOnce(map, "tilesloaded", () => {
+        overlay.style.display = "none"; // supprime fond blanc + loader
+      });
+    }
+  }
+
+  // ----- Observer du LCP -----
+  const lcpBubble = document.getElementById("lcpBubble");
+
+  try {
+    const observer = new PerformanceObserver((list) => {
+      const entries = list.getEntries();
+      const lastEntry = entries[entries.length - 1];
+      if (lastEntry) {
+        const lcpTime = (lastEntry.startTime / 1000).toFixed(2);
+        lcpBubble.textContent = `LCP: ${lcpTime}s`;
+      }
+    });
+    observer.observe({ type: "largest-contentful-paint", buffered: true });
+  } catch (e) {
+    lcpBubble.textContent = "LCP: non supporté";
+  }
+</script>
+
+<!-- ⚠️ Remplacez YOUR_API_KEY par votre clé -->
+<script async
+  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASwp7_7IfOQLFlP1gxA8gG7k21CT7OVKk&callback=initMap">
+</script>
+
+</body>
+</html>
