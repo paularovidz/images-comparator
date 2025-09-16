@@ -100,7 +100,8 @@
 
 <header>
   <h1>PoC Store Locator Loader</h1>
-  <button class="toggle-btn" id="toggleLoaderBtn">Basculer Loader</button>
+  <p>We do recommand to disable your browser' cache and to add 4G (slow or quick) connection to test the timings.</p>
+  <button class="toggle-btn" id="toggleLoaderBtn">Toggle loader</button>
 </header>
 
 <main>
@@ -168,10 +169,13 @@
   }
 </script>
 
-<!-- ⚠️ Remplacez YOUR_API_KEY par votre clé -->
-<script async
-  src="https://maps.googleapis.com/maps/api/js?key=AIzaSyASwp7_7IfOQLFlP1gxA8gG7k21CT7OVKk&callback=initMap">
-</script>
+<script>
+    const ts = Date.now(); // timestamp unique
+    const script = document.createElement("script");
+    script.async = true;
+    script.src = "https://maps.googleapis.com/maps/api/js?key=AIzaSyASwp7_7IfOQLFlP1gxA8gG7k21CT7OVKk&callback=initMap&nocache=" + ts;
+    document.body.appendChild(script);
+  </script>
 
 </body>
 </html>
