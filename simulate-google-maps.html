@@ -104,7 +104,7 @@
 <main>
   <div class="map-container">
     <!-- LCP candidate -->
-    <img class="lcp-img" src="loader.svg" alt="" fetchpriority="high">
+    <img class="lcp-img" id="lcpImg" src="loader.svg" alt="" fetchpriority="high">
 
     <!-- White overlay + loader -->
     <div class="map-overlay" id="mapOverlay">
@@ -120,10 +120,12 @@
 
 <script>
   const overlay = document.getElementById("mapOverlay");
+  const lcpImage = document.getElementById("lcpImg");
   const loaderEnabled = sessionStorage.getItem("loaderEnabled") !== "false"; 
 
   if (!loaderEnabled) {
     overlay.style.display = "none";
+    lcpImage.style.display = "none";
   }
 
   document.getElementById("toggleLoaderBtn").addEventListener("click", () => {
@@ -142,8 +144,6 @@
     if (loaderEnabled) {
       google.maps.event.addListenerOnce(map, "tilesloaded", () => {
         overlay.style.display = "none"; // removes the white background and the loader
-        performance.mark("map_shown");
-        performance.measure("map_visible", "navigationStart", "map_shown");
       });
     }
   }
